@@ -1,0 +1,76 @@
+name: Flag manual check-ins
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened]
+        paths:
+            - "Checking_Similarity"
+
+jobs:
+    detect:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: write
+        outputs:
+            flagged: ${{ steps.check.outputs.flagged }}
+            flagged_str: ${{ steps.check.outputs.flagged_str }}
+        steps:
+            -   name: Check commit provenance
+                id: check
+                env:
+                    GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+                    GH_REPO: ${{github.repository}}
+                    PR_NUMBER: ${{github.event.pull_request.number}}
+                    HEAD_REF: ${{github.event.pull_request.head.ref}}
+                    MERGER_EMAIL: "arunavborthakur2020@gmail.com"
+                
+                run: |
+                    set -euo pipefail
+                    
+                    NON_MERGER_SHAS=$(gh pr view $PR_NUMBER --json commits \
+                    --jq "[.commits[] | select(.author.email != \"$MERGER_EMAIL\") | .oid] | join(\" \")")
+
+                    CHECKED_FOLDER_RE="Checking_Similarity/*"
+
+                    FLAGGED=()
+                    for sha in $NON_MERGER_SHAS; do
+                        TOUCHES_CHECKED_FOLDER=$(gh api "repos/$GH_REPO/commits/$sha" \
+                            --jq "[.files[] | select(.filename | test(\"$CHECKED_FOLDER_RE\"))] | length")
+                        if [[ "$TOUCHES_CHECKED_FOLDER" -gt 0 ]]; then
+                            FLAGGED+=("$sha")
+                        fi
+                    done
+
+                    if [ "${#FLAGGED[@]}" -eq 0 ]; then
+                        echo "No manual check-ins detected."
+                        echo "flagged=false" >> $GITHUB_OUTPUT
+                        echo "flagged_str=" >> $GITHUB_OUTPUT
+                        exit 0
+                    fi
+                    
+                    FLAGGED_STR=$(IFS=', '; echo "${FLAGGED[*]}")
+
+                    echo "flagged=true" >> $GITHUB_OUTPUT
+                    echo "flagged_str=$FLAGGED_STR" >> $GITHUB_OUTPUT
+
+                    echo "::warning::PR contains commits by non-merger authors that touch the 'Checking_Similarity' folder: $FLAGGED_STR"
+
+                    MARKER="Manula check-in detected. Please ensure that all changes to the 'Checking_Similarity' folder are reviewed and approved by the appropriate team members."
+                    ALREADY_FLAGGED=$(gh pr view $PR_NUMBER --json comments \
+                    --jq "[.comments[] | select(.body | contains(\"$MARKER\"))] | length")
+
+                    if [[ "$ALREADY_FLAGGED" -eq 0 ]]; then
+                        gh pr comment $PR_NUMBER --body "$MARKER"
+                    fi
+
+    require-bypass-approval:
+        needs: detect
+        if: needs.detect.outputs.flagged == 'true'
+        runs-on: ubuntu-latest
+        environment: non-merger-override
+        permissions: {}
+        steps:
+            -   name: Bypass approval
+                run: echo "Approved via the non-merger-override environment for flagged manual check-ins."
+                
