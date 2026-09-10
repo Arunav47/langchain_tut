@@ -2,9 +2,8 @@ name: Flag manual check-ins
 
 on:
     pull_request:
+        branches: [main]
         types: [opened, synchronize, reopened]
-        paths:
-            - "Checking_Similarity/*"
 
 jobs:
     detect:
@@ -68,7 +67,9 @@ jobs:
         needs: detect
         if: needs.detect.outputs.flagged == 'true'
         runs-on: ubuntu-latest
-        environment: non-merger-override
+        environment: 
+           name: non-merger-override
+           deployment: false
         permissions: {}
         steps:
             -   name: Bypass approval
