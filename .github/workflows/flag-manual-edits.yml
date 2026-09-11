@@ -5,7 +5,7 @@ on:
         branches: [main]
         types: [opened, synchronize, reopened]
 concurrency:
-    group: ${{github.workflow}}-${{github.event.pull_request.number}}
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
     cancel-in-progress: true
 jobs:
     detect:
@@ -20,10 +20,10 @@ jobs:
             -   name: Check commit provenance
                 id: check
                 env:
-                    GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
-                    GH_REPO: ${{github.repository}}
-                    PR_NUMBER: ${{github.event.pull_request.number}}
-                    HEAD_REF: ${{github.event.pull_request.head.ref}}
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    GH_REPO: ${{ github.repository }}
+                    PR_NUMBER: ${{ github.event.pull_request.number }}
+                    HEAD_REF: ${{ github.event.pull_request.head.ref }}
                     MERGER_EMAIL: "arunavborthakur2020@gmail.com"
                 
                 run: |
