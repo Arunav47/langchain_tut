@@ -8,6 +8,28 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
     cancel-in-progress: true
 jobs:
+    cancel-superseded:
+        runs-on: ubuntu-latest
+        permissions: 
+            actions: write
+        steps:
+            - name: Cancel older runs still pending/waiting for this PR
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_REPO: ${{ github.repository }}
+                  HEAD_REF: ${{ github.event.pull_request.head.ref }}
+                  CURRENT_RUN_ID: ${{ github.run_id }}
+              run: |
+                  set -euo pipefail
+                  RUN_IDS=$(gh api "repos/$GH_REPO/actions/workflows/flag-manual-edits.yml/runs?event=pull_request_target&per_page=20" \
+                   --jq "[.workflow_runs[] | select(.status != \"completed\") | select(.head_branch == \"$HEAD_REF\") | select(.id != $CURRENT_RUN_ID) | .id] | .[]")
+
+                  for run_id in $RUN_IDS; do
+                      echo "Cancelling superseded run $run_id for branch $HEAD_REF"
+                      gh api -X POST "repos/$GH_REPO/actions/runs/$run_id/cancel" \
+                       || echo "::warning::Failed to cancel superseded run $run_id - it may already have completed."
+                  done
+                  
     detect:
         runs-on: ubuntu-latest
         permissions:
