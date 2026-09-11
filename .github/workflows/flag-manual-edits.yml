@@ -88,7 +88,7 @@ jobs:
                   FLAGGED="${{needs.detect.outputs.flagged}}"
                   APPROVAL_RESULT="${{needs.require-bypass-approval.result}}"
                   if [ "$DETECT_RESULT" != "success" ]; then
-                      echo "::error::detect did not complete successfully (result: $DETECT_RESULT) - failing closed:
+                      echo "::error::detect did not complete successfully (result: $DETECT_RESULT) - failing closed"
                       exit 1
                   fi
 
