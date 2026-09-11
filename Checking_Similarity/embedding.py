@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-newvar=1234
+newvar=12345
 embedding_model = HuggingFaceEndpointEmbeddings(
     repo_id = "sentence-transformers/all-MiniLM-L6-v2",
     task= "feature-extraction"
