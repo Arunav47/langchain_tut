@@ -2,9 +2,8 @@ name: Flag manual check-ins
 
 on:
     pull_request:
+        branches: [main]
         types: [opened, synchronize, reopened]
-        paths:
-            - "Checking_Similarity/*"
 
 jobs:
     detect:
