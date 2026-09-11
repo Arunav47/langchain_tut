@@ -1,10 +1,12 @@
 name: Flag manual check-ins
 
 on:
-    pull_request:
+    pull_request_target:
         branches: [main]
         types: [opened, synchronize, reopened]
-
+concurrency:
+    group: ${{github.workflow}}-${{github.event.pull_request.number}}
+    cancel-in-progress: true
 jobs:
     detect:
         runs-on: ubuntu-latest
@@ -60,12 +62,12 @@ jobs:
                     --jq "[.comments[] | select(.body | contains(\"$MARKER\"))] | length")
 
                     if [[ "$ALREADY_FLAGGED" -eq 0 ]]; then
-                        gh pr comment $PR_NUMBER --body "$MARKER"
+                        gh pr comment $PR_NUMBER --body "$MARKER" || echo "::warning::Failed to post the PR comment."
                     fi
 
     require-bypass-approval:
         needs: detect
-        if: needs.detect.outputs.flagged == 'true'
+        if: always() && (needs.detect.result == 'failure' || needs.detect.outputs.flagged == 'true')
         runs-on: ubuntu-latest
         environment: 
            name: non-merger-override
@@ -74,4 +76,25 @@ jobs:
         steps:
             -   name: Bypass approval
                 run: echo "Approved via the non-merger-override environment for flagged manual check-ins."
-                
+    enforce:
+        needs: [detect, require-bypass-approval]
+        if: always()
+        runs-on: ubuntu-latest
+        permissions: {}
+        steps:
+            - name: Verify gate outcome
+              run: |
+                  DETECT_RESULT="${{needs.detect.result}}"
+                  FLAGGED="${{needs.detect.outputs.flagged}}"
+                  APPROVAL_RESULT="${{needs.require-bypass-approval.result}}"
+                  if [ "$DETECT_RESULT" != "success" ]; then
+                      echo "::error::detect did not complete successfully (result: $DETECT_RESULT) - failing closed:
+                      exit 1
+                  fi
+
+                  if [ "$FLAGGED" == "true" ] && [ "$APPROVAL_RESULT" != "success" ]; then
+                      echo "::error::PR flags a manual edit to generated output, but require-bypass-approval did not succes (result: $APPROVAL_RESULT) - failing closed."
+                      exit 1
+                  fi
+
+                  echo "Gate satisfied (detect: $DETECT_RESULT, flagged: $FLAGGED, approval:$APPROVAL_RESULT)."
