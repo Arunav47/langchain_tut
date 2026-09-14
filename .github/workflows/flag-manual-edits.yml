@@ -185,17 +185,17 @@ jobs:
                       exit 1
                   fi
 
-                  if [ "$FLAGGED" == "true" ] && [ "$APPROVAL_RESULT" != "success" ]; then
-                      echo "::error::PR flags a manual edit to generated output, but require-bypass-approval did not succes (result: $APPROVAL_RESULT) - failing closed."
-                      exit 1
-                  fi
+                  if [ "$FLAGGED" = "true" ]; then
+                      if [ "$APPROVAL_RESULT" != "success" ]; then
+                          echo "::error::PR flags a manual edit to generated output, but require-bypass-approval did not succeed (result: $APPROVAL_RESULT) - failing closed."
+                          exit 1
+                      fi
 
-                  if [ "$PREFLIGHT_OK" != "true" ]; then
-                      echo "::error::PR flags a manual edit to generated output, but preflight-exception did not succeed (result: $PREFLIGHT_RESULT, ok: $PREFLIGHT_OK) - failing closed."
-                      exit 1
-                  fi
+                      if [ "$PREFLIGHT_OK" != "true" ]; then
+                          echo "::error::PR flags a manual edit to generated output, but preflight-exception did not succeed (result: $PREFLIGHT_RESULT, ok: $PREFLIGHT_OK) - failing closed."
+                          exit 1
+                      fi
 
-                  if [ "APPROVAL_RESULT" == "success" ]; then
                       echo "::notice::PR flags a manual edit to generated output, but require-bypass-approval succeeded (result: $APPROVAL_RESULT) - gate satisfied."
                   fi
 
