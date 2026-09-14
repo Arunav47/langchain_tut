@@ -31,7 +31,7 @@ jobs:
                     set -euo pipefail
                     
                     NON_MERGER_SHAS=$(gh pr view $PR_NUMBER --json commits \
-                    --jq "[.commits[] | select(.author.email != \"$MERGER_EMAIL\") | .oid] | join(\" \")")
+                    --jq "[.commits[] | select(any(.authors[]; .email != \"$MERGER_EMAIL\")) | .oid] | join(\" \")")
 
                     CHECKED_FOLDER_RE="^Checking_Similarity/"
 
