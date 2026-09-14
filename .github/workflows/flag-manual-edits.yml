@@ -3,7 +3,7 @@ name: Flag manual check-ins
 on:
     pull_request_target:
         branches: [main]
-        types: [opened, synchronize, reopened]
+        types: [opened, synchronize, reopened, edited]
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
     cancel-in-progress: true
@@ -16,6 +16,7 @@ jobs:
         outputs:
             flagged: ${{ steps.check.outputs.flagged }}
             flagged_str: ${{ steps.check.outputs.flagged_str }}
+            touched_paths: ${{ steps.check.outputs.touched_paths }}
         steps:
             -   name: Check commit provenance
                 id: check
@@ -35,11 +36,15 @@ jobs:
                     CHECKED_FOLDER_RE="Checking_Similarity/*"
 
                     FLAGGED=()
+                    TOUCHED_PATHS=()
                     for sha in $NON_MERGER_SHAS; do
-                        TOUCHES_CHECKED_FOLDER=$(gh api "repos/$GH_REPO/commits/$sha" \
-                            --jq "[.files[] | select(.filename | test(\"$CHECKED_FOLDER_RE\"))] | length")
-                        if [[ "$TOUCHES_CHECKED_FOLDER" -gt 0 ]]; then
-                            FLAGGED+=("$sha")
+                        FILES=$(gh api "repos/$GH_REPO/commits/$sha" \
+                            --jq "[.files[].filename | select(test(\"$CHECKED_FOLDER_RE\"))] | .[]") 
+                        if [ -n "$FILES" ]; then
+                            FLAGGED+=("${sha:0:7}")
+                            while IFS= read -r f; do
+                                TOUCHED_PATHS+=("$f")
+                            done <<< "$FILES"
                         fi
                     done
 
@@ -54,7 +59,7 @@ jobs:
 
                     echo "flagged=true" >> $GITHUB_OUTPUT
                     echo "flagged_str=$FLAGGED_STR" >> $GITHUB_OUTPUT
-
+                    echo "touched_paths=${TOUCHED_PATHS[*]}" >> $GITHUB_OUTPUT
                     echo "::warning::PR contains commits by non-merger authors that touch the 'Checking_Similarity' folder: $FLAGGED_STR"
 
                     MARKER="Manula check-in detected. Please ensure that all changes to the 'Checking_Similarity' folder are reviewed and approved by the appropriate team members."
@@ -64,20 +69,102 @@ jobs:
                     if [[ "$ALREADY_FLAGGED" -eq 0 ]]; then
                         gh pr comment $PR_NUMBER --body "$MARKER" || echo "::warning::Failed to post the PR comment."
                     fi
-
-    require-bypass-approval:
+    
+    preflight-exception:
         needs: detect
         if: always() && (needs.detect.result == 'failure' || needs.detect.outputs.flagged == 'true')
+        runs-on: ubuntu-latest
+        permissions:
+            pull-requests: write
+        outputs:
+            ok: ${{ steps.check.outputs.ok }}
+        steps:
+            -   name: Check for preflight exception
+                id: check
+                env:
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    GH_REPO: ${{ github.repository }}
+                    PR_NUMBER: ${{ github.event.pull_request.number }}
+                    TOUCHED_PATHS: ${{ needs.detect.outputs.touched_paths }}
+                run: |
+                    set -euo pipefail
+
+                    BODY=$(gh pr view $PR_NUMBER --json body --jq ".body // \"\"")
+
+                    get_field() {
+                        { grep -m1 -i "^-*{1}" <<< "$BODY" | cut -d':' -f2- | sed -E 's/^[[:space:]]+//';} || true
+                    }
+                    REASON=$(get_field "Exception reason")
+                    SOURCE_REF=$(get_field "Source issue")
+                    PATHS=$(get_field "Affected paths")
+                    WHY_NOT=$(get_field "Why source")
+                    EXPIRY=$(get_field "Expiry and follow")
+
+                    MISSING=()
+                    [-z "$REASON" ] && MISSING+=("Exception reason")
+                    [ -z "$SOURCE_REF" ] && MISSING+=("Source issue")
+                    [ -z "$PATHS" ] && MISSING+=("Affected paths")
+                    [ -z "$WHY_NOT" ] && MISSING+=("Why source")
+                    [ -z "$EXPIRY" ] && MISSING+=("Expiry and follow")
+
+                    if [-n "$PATHS" ] && [ -n "$TOUCHED_PATHS" ]; then
+                        MATCH=false
+                        for path in $TOUCHED_PATHS; do
+                            case "$PATHS" in *"$p"*) MATCH=true ;; esac
+                        done
+                        [ "$MATCH" = false ] && MISSING+=("Affected generated paths:$TOUCHED_PATHS")
+                    fi
+
+                    if [ "${#MISSING[@]}" -eq 0 ]; then
+                        echo "ok=true" >> $GITHUB_OUTPUT
+                        exit 0
+                    fi
+
+                    echo "ok=false" >> $GITHUB_OUTPUT
+                    MISSING_STR=$(IFS=', '; echo "${MISSING[*]}")
+                    COMMENT_BODY=$(printf '%s\n\n%s\nRequired format for preflight exception:\n- Exception reason: <reason>\n- Source issue: <issue link>\n- Affected paths: <paths>\n- Why source: <why source>\n- Expiry and follow: <expiry/follow-up instructions>' "Manual-edit exception section incomplete - fix these fields in the PR description, then edit the description (no new commit needed) to re-check:" "$MISSING_STR")
+                    gh pr comment $PR_NUMBER --body "$COMMENT_BODY" || echo "::warning::Failed to post the PR comment."
+                    
+
+    require-bypass-approval:
+        needs: [detect, preflight-exception]
+        if: always() && (needs.detect.result == 'failure' || (needs.detect.outputs.flagged == 'true' && needs.preflight-exception.outputs.ok == 'true'))
         runs-on: ubuntu-latest
         environment: 
            name: non-merger-override
            deployment: false
-        permissions: {}
+        permissions:
+            actions: read
+            pull-requests: write
         steps:
             -   name: Bypass approval
-                run: echo "Approved via the non-merger-override environment for flagged manual check-ins."
+                env:
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    GH_REPO: ${{ github.repository }}
+                    PR_NUMBER: ${{ github.event.pull_request.number }}
+                    HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                    RUN_ID: ${{ github.run_id }}
+                    TOUCHED_PATHS: ${{ needs.detect.outputs.touched_paths }}
+                run: |
+                    set -euo pipefail
+
+                    if [ "${{ needs.detect.result }}" = "failure" ]; then
+                        APPROVER="(fail-closed path - detect itself errored; see its run logs)"
+                    else
+                        APPROVER=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/approvals" \
+                            --jq '[.[] | select(.state == "approved")] | last | .user.login // unknown"')
+                    fi
+                    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                    RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/$RUN_ID"
+
+                    echo "Approved via the generated-plugin-environment by $APPROVER at $TIMESTAMP (UTC).- commit $HEAD_SHA touches generated path(s): $TOUCHED_PATHS. See run $RUN_URL for details."
+                    gh pr edit "$PR_NUMBER" --add-label "manual-check-in-approved"
+
+                    RECIEPT=$(printf '%s\n\n- Head SHA: %s\n- Affected generated paths: %s\n- Approver: %s\n- Decision: approved\n- Timestamp: %s (UTC)\n- Run URL: %s' "Audit Reciept for Manual check-in approved" "$HEAD_SHA" "$TOUCHED_PATHS" "$APPROVER" "$TIMESTAMP" "$RUN_URL")
+
+                    gh pr comment "$PR_NUMBER" --body "$RECIEPT" || echo "::warning::Failed to post the PR comment."
     enforce:
-        needs: [detect, require-bypass-approval]
+        needs: [detect, preflight-exception, require-bypass-approval]
         if: always()
         runs-on: ubuntu-latest
         permissions: {}
@@ -86,6 +173,8 @@ jobs:
               run: |
                   DETECT_RESULT="${{needs.detect.result}}"
                   FLAGGED="${{needs.detect.outputs.flagged}}"
+                  PREFLIGHT_RESULT="${{ needs.preflight-exception.result }}"
+                  PREFLIGHT_OK="${{ needs.preflight-exception.outputs.ok }}"
                   APPROVAL_RESULT="${{needs.require-bypass-approval.result}}"
                   if [ "$DETECT_RESULT" != "success" ]; then
                       echo "::error::detect did not complete successfully (result: $DETECT_RESULT) - failing closed"
@@ -97,4 +186,13 @@ jobs:
                       exit 1
                   fi
 
-                  echo "Gate satisfied (detect: $DETECT_RESULT, flagged: $FLAGGED, approval:$APPROVAL_RESULT)."
+                  if [ "$PREFLIGHT_OK" != "true" ]; then
+                      echo "::error::PR flags a manual edit to generated output, but preflight-exception did not succeed (result: $PREFLIGHT_RESULT, ok: $PREFLIGHT_OK) - failing closed."
+                      exit 1
+                  fi
+
+                  if [ "APPROVAL_RESULT" == "success" ]; then
+                      echo "::notice::PR flags a manual edit to generated output, but require-bypass-approval succeeded (result: $APPROVAL_RESULT) - gate satisfied."
+                  fi
+
+                  echo "Gate 1 satisfied (detect: $DETECT_RESULT, flagged: $FLAGGED, preflight: $PREFLIGHT_OK, approval:$APPROVAL_RESULT)."
