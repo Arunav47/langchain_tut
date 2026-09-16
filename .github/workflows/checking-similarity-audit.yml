@@ -1,17 +1,24 @@
 name: Checking Similarity audit
 
 on:
-    workflow_run:
-        workflows: [Flag manual check-ins]
-        types: [completed]
+    workflow_call:
+        inputs:
+            pr_number:
+                required: true
+                type: number
+            head_sha:
+                required: true
+                type: string
+            source_run_id:
+                required: true
+                type: number
 
 concurrency:
-    group: checking-similarity-audit-${{ github.event.workflow_run.head_sha }}
+    group: checking-similarity-audit-${{ inputs.head_sha }}
     cancel-in-progress: false
 
 jobs:
     detect:
-        if: github.event.workflow_run.conclusion == 'success'
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -27,15 +34,12 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GH_REPO: ${{ github.repository }}
-                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  PR_NUMBER_INPUT: ${{ inputs.pr_number }}
+                  HEAD_SHA: ${{ inputs.head_sha }}
               run: |
                   set -euo pipefail
 
-                  PR_NUMBER=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" --jq '.[0].number // empty')
-                  if [ -z "$PR_NUMBER" ]; then
-                      echo "::error::No pull request is associated with workflow run head $HEAD_SHA."
-                      exit 1
-                  fi
+                  PR_NUMBER="$PR_NUMBER_INPUT"
                   echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
                   PATHS=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER/files" \
@@ -80,8 +84,8 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GH_REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
-                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-                  SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+                  HEAD_SHA: ${{ inputs.head_sha }}
+                  SOURCE_RUN_ID: ${{ inputs.source_run_id }}
                   CHANGED: ${{ needs.detect.outputs.changed }}
                   CHANGED_PATHS: ${{ needs.detect.outputs.changed_paths }}
               run: |

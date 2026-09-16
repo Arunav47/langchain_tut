@@ -1,12 +1,23 @@
 name: Flag manual check-ins
 
 on:
-    pull_request_target:
-        branches: [main]
-        types: [opened, synchronize, reopened, edited]
+    workflow_call:
+        inputs:
+            pr_number:
+                required: true
+                type: number
+            head_sha:
+                required: true
+                type: string
+            merger_email:
+                required: false
+                default: arunavborthakur2020@gmail.com
+                type: string
+
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+    group: ${{ github.workflow }}-${{ inputs.pr_number }}
     cancel-in-progress: true
+
 jobs:    
     detect:
         runs-on: ubuntu-latest
@@ -23,9 +34,8 @@ jobs:
                 env:
                     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     GH_REPO: ${{ github.repository }}
-                    PR_NUMBER: ${{ github.event.pull_request.number }}
-                    HEAD_REF: ${{ github.event.pull_request.head.ref }}
-                    MERGER_EMAIL: "arunavborthakur2020@gmail.com"
+                    PR_NUMBER: ${{ inputs.pr_number }}
+                    MERGER_EMAIL: ${{ inputs.merger_email }}
                 
                 run: |
                     set -euo pipefail
@@ -84,7 +94,7 @@ jobs:
                 env:
                     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     GH_REPO: ${{ github.repository }}
-                    PR_NUMBER: ${{ github.event.pull_request.number }}
+                    PR_NUMBER: ${{ inputs.pr_number }}
                     TOUCHED_PATHS: ${{ needs.detect.outputs.touched_paths }}
                 run: |
                     set -euo pipefail
@@ -145,8 +155,8 @@ jobs:
                 env:
                     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     GH_REPO: ${{ github.repository }}
-                    PR_NUMBER: ${{ github.event.pull_request.number }}
-                    HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                    PR_NUMBER: ${{ inputs.pr_number }}
+                    HEAD_SHA: ${{ inputs.head_sha }}
                     RUN_ID: ${{ github.run_id }}
                     TOUCHED_PATHS: ${{ needs.detect.outputs.touched_paths }}
                 run: |
