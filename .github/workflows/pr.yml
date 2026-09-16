@@ -26,7 +26,6 @@ jobs:
     checking-similarity-audit:
         name: Checking Similarity audit
         needs: manual-check-ins
-        if: needs.manual-check-ins.result == 'success'
         uses: ./.github/workflows/checking-similarity-audit.yml
         with:
             pr_number: ${{ github.event.pull_request.number }}
