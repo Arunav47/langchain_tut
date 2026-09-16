@@ -1,19 +1,23 @@
 name: Checking Similarity audit
 
 on:
-    repository_dispatch:
-        types: [checking-similarity-audit]
+    workflow_run:
+        workflows: [Flag manual check-ins]
+        types: [completed]
 
 concurrency:
-    group: checking-similarity-audit-${{ github.event.client_payload.pr_number }}-${{ github.event.client_payload.head_sha }}
+    group: checking-similarity-audit-${{ github.event.workflow_run.head_sha }}
     cancel-in-progress: false
 
 jobs:
     detect:
+        if: github.event.workflow_run.conclusion == 'success'
         runs-on: ubuntu-latest
         permissions:
             contents: read
+            pull-requests: read
         outputs:
+            pr_number: ${{ steps.paths.outputs.pr_number }}
             changed: ${{ steps.paths.outputs.changed }}
             changed_paths: ${{ steps.paths.outputs.changed_paths }}
         steps:
@@ -23,9 +27,16 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GH_REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
               run: |
                   set -euo pipefail
+
+                  PR_NUMBER=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" --jq '.[0].number // empty')
+                  if [ -z "$PR_NUMBER" ]; then
+                      echo "::error::No pull request is associated with workflow run head $HEAD_SHA."
+                      exit 1
+                  fi
+                  echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
                   PATHS=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER/files" \
                       --paginate \
@@ -58,7 +69,7 @@ jobs:
 
     generate-receipt:
         needs: [detect, approval]
-        if: always() && (needs.detect.outputs.changed == 'false' || needs.approval.result == 'success')
+        if: always() && needs.detect.result == 'success' && (needs.detect.outputs.changed == 'false' || needs.approval.result == 'success')
         runs-on: ubuntu-latest
         permissions:
             actions: read
@@ -68,9 +79,9 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GH_REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-                  HEAD_SHA: ${{ github.event.client_payload.head_sha }}
-                  SOURCE_RUN_ID: ${{ github.event.client_payload.source_run_id }}
+                  PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
                   CHANGED: ${{ needs.detect.outputs.changed }}
                   CHANGED_PATHS: ${{ needs.detect.outputs.changed_paths }}
               run: |
