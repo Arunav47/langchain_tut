@@ -171,7 +171,8 @@ jobs:
         needs: [detect, preflight-exception, require-bypass-approval]
         if: always()
         runs-on: ubuntu-latest
-        permissions: {}
+        permissions:
+            contents: write
         steps:
             - name: Verify gate outcome
               run: |
@@ -200,3 +201,23 @@ jobs:
                   fi
 
                   echo "Gate 1 satisfied (detect: $DETECT_RESULT, flagged: $FLAGGED, preflight: $PREFLIGHT_OK, approval:$APPROVAL_RESULT)."
+
+            - name: Start Checking Similarity audit
+              if: success()
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  gh api "repos/$GH_REPO/dispatches" \
+                      --method POST \
+                      --input - <<'JSON'
+                  {
+                    "event_type": "checking-similarity-audit",
+                    "client_payload": {
+                      "pr_number": "${{ github.event.pull_request.number }}",
+                      "base_sha": "${{ github.event.pull_request.base.sha }}",
+                      "head_sha": "${{ github.event.pull_request.head.sha }}",
+                      "source_run_id": "${{ github.run_id }}"
+                    }
+                  }
+                  JSON

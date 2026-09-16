@@ -1,0 +1,98 @@
+name: Checking Similarity audit
+
+on:
+    repository_dispatch:
+        types: [checking-similarity-audit]
+
+concurrency:
+    group: checking-similarity-audit-${{ github.event.client_payload.pr_number }}-${{ github.event.client_payload.head_sha }}
+    cancel-in-progress: false
+
+jobs:
+    detect:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        outputs:
+            changed: ${{ steps.paths.outputs.changed }}
+            changed_paths: ${{ steps.paths.outputs.changed_paths }}
+        steps:
+            - name: Check Checking Similarity changes
+              id: paths
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+              run: |
+                  set -euo pipefail
+
+                  PATHS=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER/files" \
+                      --paginate \
+                      --jq '.[] | select(.filename | startswith("Checking_Similarity/")) | .filename')
+                  if [ -z "$PATHS" ]; then
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
+                      echo "changed_paths=" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  echo "changed=true" >> "$GITHUB_OUTPUT"
+                  {
+                      echo "changed_paths<<EOF"
+                      printf '%s\n' "$PATHS"
+                      echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+    approval:
+        needs: detect
+        if: needs.detect.outputs.changed == 'true'
+        runs-on: ubuntu-latest
+        environment:
+            name: checking-similarity-review
+            deployment: false
+        permissions:
+            actions: read
+        steps:
+            - name: Record approval
+              run: echo "Checking Similarity changes approved for review."
+
+    generate-receipt:
+        needs: [detect, approval]
+        if: always() && (needs.detect.outputs.changed == 'false' || needs.approval.result == 'success')
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            pull-requests: write
+        steps:
+            - name: Generate audit receipt
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+                  HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+                  SOURCE_RUN_ID: ${{ github.event.client_payload.source_run_id }}
+                  CHANGED: ${{ needs.detect.outputs.changed }}
+                  CHANGED_PATHS: ${{ needs.detect.outputs.changed_paths }}
+              run: |
+                  set -euo pipefail
+
+                  RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/${{ github.run_id }}"
+                  SOURCE_RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/$SOURCE_RUN_ID"
+                  TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                  APPROVER="not required"
+
+                  if [ "$CHANGED" = "true" ]; then
+                      APPROVER=$(gh api "repos/$GH_REPO/actions/runs/${{ github.run_id }}/approvals" \
+                          --jq '[.[] | select(.state == "approved")] | last | .user.login // "unknown"')
+                  fi
+
+                  RECEIPT=$(printf '%s\n\n- Head SHA: %s\n- Checking Similarity paths: %s\n- Approver: %s\n- Decision: approved\n- Timestamp: %s (UTC)\n- Audit run: %s\n- Enforce run: %s' \
+                      "Audit receipt for Checking Similarity changes" \
+                      "$HEAD_SHA" \
+                      "${CHANGED_PATHS:-none}" \
+                      "$APPROVER" \
+                      "$TIMESTAMP" \
+                      "$RUN_URL" \
+                      "$SOURCE_RUN_URL")
+
+                  gh pr comment "$PR_NUMBER" --body "$RECEIPT"
