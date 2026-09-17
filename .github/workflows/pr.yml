@@ -26,7 +26,7 @@ jobs:
     checking-similarity-audit:
         name: Checking Similarity audit
         needs: manual-check-ins
-        if: ${{ !failure() && !cancelled() }}
+        if: always()
         uses: ./.github/workflows/checking-similarity-audit.yml
         with:
             pr_number: ${{ github.event.pull_request.number }}
