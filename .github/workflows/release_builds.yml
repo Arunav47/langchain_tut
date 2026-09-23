@@ -25,7 +25,7 @@ jobs:
       - name: Checkout all
         uses: actions/checkout@v4
         with:
-          fetch_depth: 0
+          fetch-depth: 0
       - name: Version Resolve
         id: version
         env:
@@ -52,8 +52,8 @@ jobs:
             BASE=${LAST_TAG#v}
             MAJOR=${BASE%%.*}
             REST=${BASE#*.}
-            MINOR={REST%%.*}
-            PATCH={REST#*.}
+            MINOR=${REST%%.*}
+            PATCH=${REST#*.}
             VERSION="v$MAJOR.$MINOR.$((PATCH + 1))"
           fi
 
@@ -122,8 +122,11 @@ jobs:
           mkdir -p "$STAGE"
           git archive HEAD | tar -x -C "$STAGE"
           rm -rf "$STAGE/.github"
-          ( cd "RUNNER_TEMP" && zip -r -q "$ZIP" "$STAGE_NAME" )
-          echo "zip_path=$ZIP" >> "$GITHUB_OUTPUTS"
+          (
+            cd "$RUNNER_TEMP"
+            zip -r -q "$ZIP" "$STAGE_NAME"
+          )
+          echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
           echo "Zipped release payload: $ZIP"
           if command -v unzip >/dev/null; then
             unzip -l "$ZIP"
