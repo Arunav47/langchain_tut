@@ -23,7 +23,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout all
-        uses: actions/checkout@4
+        uses: actions/checkout@v4
         with:
           fetch_depth: 0
       - name: Version Resolve
