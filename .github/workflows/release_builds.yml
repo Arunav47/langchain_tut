@@ -1,0 +1,146 @@
+name: Release builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: >-
+         Explicit release tag for minor/major bumps
+        required: false
+        type: string
+
+concurrency:
+  group: release_builds.yml
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout all
+        uses: actions/checkout@4
+        with:
+          fetch_depth: 0
+      - name: Version Resolve
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          INPUT_VERSION: ${{ inputs.versions }}
+        run: |
+          set -euo pipefail
+
+          LAST_TAG=$(gh release view --json tagName --jq '.tagName' 2>/dev/null || echo "")
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VERSION="$INPUT_VERSION"
+            if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::version '$VERSION' must match format"
+              exit 1
+            fi
+          else
+            if [ -z "$LAST_TAG" ]; then
+              echo "No existing release to auto-increment"
+              exit 1
+            fi
+            BASE=${LAST_TAG#v}
+            MAJOR=${BASE%%.*}
+            REST=${BASE#*.}
+            MINOR={REST%%.*}
+            PATCH={REST#*.}
+            VERSION="v$MAJOR.$MINOR.$((PATCH + 1))"
+          fi
+
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::tag $VERSION already exist"
+            exit 1
+          fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "::error::release $VERSION already exist"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $VERSION (previous: ${LAST_TAG:-none})"
+      - name: Build changelog
+        id: changelog
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}\
+          LAST_TAG: ${{ steps.version.outputs.last_tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES="$RUNNER_TEMP/notes.md"
+          {
+            echo "## $VERSION"
+            echo
+            if [ -n "$LAST_TAG" ]; then
+              echo "Changes since $LAST_TAG:"
+            else:
+              echo "Initial release. Merged pull requests:"
+            fi
+            echo
+          } > "$NOTES"
+
+          if [ -n "$LAST_TAG" ]; then
+            SINCE=$(TZ=UTC git log -1 --format=%cd --date=format-local:'%Y-%m-%dT%H:%M:%SZ' "$LAST_TAG")
+            PRS=$(gh pr list --state merged --base main --limit 500 \
+              --json number,title,url,mergedAt \
+              --jq "[.[] | select(.mergedAt > \"$SINCE\")] | sort_by(.mergedAt)")
+          else
+            PRS=$(gh pr list --state merged --base main --limit 500 \
+              --json number,title,url,mergedAt \
+              --jq "sort_by(.mergedAt)")
+          fi
+
+          COUNT=$(printf '%s' "$PRS" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "_No merged pull requests found in this range._" >> "$NOTES"
+          else
+            printf '%s' "$PRS" | jq -r '.[] | "- \(.title) (#\(.number)) - \(.url)"' >> "$NOTES"
+          fi
+
+          echo "notes_file=$NOTES" >> "$GITHUB_OUTPUT"
+          echo "------ changelog -------"
+          cat "$NOTES"
+      - name: Build release zip
+        id: zip
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          STAGE_NAME="uaidlc-plugins-$VERSION"
+          STAGE="$RUNNER_TEMP/$STAGE_NAME"
+          ZIP="$RUNNER_TEMP/$STAGE_NAME.zip"
+          rm -rf "$STAGE" "$ZIP"
+          mkdir -p "$STAGE"
+          git archive HEAD | tar -x -C "$STAGE"
+          rm -rf "$STAGE/.github"
+          ( cd "RUNNER_TEMP" && zip -r -q "$ZIP" "$STAGE_NAME" )
+          echo "zip_path=$ZIP" >> "$GITHUB_OUTPUTS"
+          echo "Zipped release payload: $ZIP"
+          if command -v unzip >/dev/null; then
+            unzip -l "$ZIP"
+          fi
+      - name: Create Github release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}\
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTES_FILE: ${{ steps.changelog.outputs.notes_file }}
+          ZIP_PATH: ${{ steps.zip.outputs.zip_path }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" "$ZIP_PATH" \
+            --title "$VERSION" \
+            --notes-file "$NOTES_FILE" \
+            --target "$TARGET_SHA"
+          echo "Published release $VERSION on $TARGET_SHA"
+          
