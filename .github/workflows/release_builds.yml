@@ -82,7 +82,7 @@ jobs:
             echo
             if [ -n "$LAST_TAG" ]; then
               echo "Changes since $LAST_TAG:"
-            else:
+            else
               echo "Initial release. Merged pull requests:"
             fi
             echo
