@@ -141,9 +141,10 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          TITLE="uAIDLC Plugins $VERSION ($(date -u +%Y-%m-%d))"
           gh release create "$VERSION" "$ZIP_PATH" \
-            --title "$VERSION" \
+            --title "$TITLE" \
             --notes-file "$NOTES_FILE" \
             --target "$TARGET_SHA"
-          echo "Published release $VERSION on $TARGET_SHA"
+          echo "Published release $TITLE on $TARGET_SHA"
           
