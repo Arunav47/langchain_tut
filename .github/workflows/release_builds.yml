@@ -91,11 +91,11 @@ jobs:
           if [ -n "$LAST_TAG" ]; then
             SINCE=$(TZ=UTC git log -1 --format=%cd --date=format-local:'%Y-%m-%dT%H:%M:%SZ' "$LAST_TAG")
             PRS=$(gh pr list --state merged --base main --limit 500 \
-              --json number,title,url,mergedAt \
+              --json number,title,url,mergedAt,author \
               --jq "[.[] | select(.mergedAt > \"$SINCE\")] | sort_by(.mergedAt)")
           else
             PRS=$(gh pr list --state merged --base main --limit 500 \
-              --json number,title,url,mergedAt \
+              --json number,title,url,mergedAt,author \
               --jq "sort_by(.mergedAt)")
           fi
 
@@ -103,7 +103,7 @@ jobs:
           if [ "$COUNT" -eq 0 ]; then
             echo "_No merged pull requests found in this range._" >> "$NOTES"
           else
-            printf '%s' "$PRS" | jq -r '.[] | "- \(.title) (#\(.number)) - \(.url)"' >> "$NOTES"
+            printf '%s' "$PRS" | jq -r '.[] | "- \(.title) (#\(.number)) by [@\(.author.login)]"' >> "$NOTES"
           fi
 
           echo "notes_file=$NOTES" >> "$GITHUB_OUTPUT"
