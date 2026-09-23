@@ -74,38 +74,50 @@ jobs:
           GH_REPO: ${{ github.repository }}
           LAST_TAG: ${{ steps.version.outputs.last_tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           NOTES="$RUNNER_TEMP/notes.md"
-          {
-            echo "## $VERSION"
-            echo
-            if [ -n "$LAST_TAG" ]; then
-              echo "Changes since $LAST_TAG:"
-            else
-              echo "Initial release. Merged pull requests:"
-            fi
-            echo
-          } > "$NOTES"
+          # {
+          #   echo "## $VERSION"
+          #   echo
+          #   if [ -n "$LAST_TAG" ]; then
+          #     echo "Changes since $LAST_TAG:"
+          #   else
+          #     echo "Initial release. Merged pull requests:"
+          #   fi
+          #   echo
+          # } > "$NOTES"
 
+          # if [ -n "$LAST_TAG" ]; then
+          #   SINCE=$(TZ=UTC git log -1 --format=%cd --date=format-local:'%Y-%m-%dT%H:%M:%SZ' "$LAST_TAG")
+          #   PRS=$(gh pr list --state merged --base main --limit 500 \
+          #     --json number,title,url,mergedAt,author \
+          #     --jq "[.[] | select(.mergedAt > \"$SINCE\")] | sort_by(.mergedAt)")
+          # else
+          #   PRS=$(gh pr list --state merged --base main --limit 500 \
+          #     --json number,title,url,mergedAt,author \
+          #     --jq "sort_by(.mergedAt)")
+          # fi
+
+          # COUNT=$(printf '%s' "$PRS" | jq 'length')
+          # if [ "$COUNT" -eq 0 ]; then
+          #   echo "_No merged pull requests found in this range._" >> "$NOTES"
+          # else
+          #   printf '%s' "$PRS" | jq -r '.[] | "- \(.title) (#\(.number)) by [@\(.author.login)](https://github.com/\(.author.login))"' >> "$NOTES"
+          # fi
           if [ -n "$LAST_TAG" ]; then
-            SINCE=$(TZ=UTC git log -1 --format=%cd --date=format-local:'%Y-%m-%dT%H:%M:%SZ' "$LAST_TAG")
-            PRS=$(gh pr list --state merged --base main --limit 500 \
-              --json number,title,url,mergedAt,author \
-              --jq "[.[] | select(.mergedAt > \"$SINCE\")] | sort_by(.mergedAt)")
+            gh api --method POST "repos/$GH_REPO/releases/generate-notes" \
+              -f tag_name="$VERSION" \
+              -f previous_tag_name="$LAST_TAG" \
+              -f target_commitish="$TARGET_SHA" \
+              --jq '.body' > "$NOTES"
           else
-            PRS=$(gh pr list --state merged --base main --limit 500 \
-              --json number,title,url,mergedAt,author \
-              --jq "sort_by(.mergedAt)")
+            gh api --method POST "repos/$GH_REPO/releases/generate-notes" \
+              -f tag_name="$VERSION" \
+              -f target_commitish="$TARGET_SHA" \
+              --jq '.body' > "$NOTES"
           fi
-
-          COUNT=$(printf '%s' "$PRS" | jq 'length')
-          if [ "$COUNT" -eq 0 ]; then
-            echo "_No merged pull requests found in this range._" >> "$NOTES"
-          else
-            printf '%s' "$PRS" | jq -r '.[] | "- \(.title) (#\(.number)) by [@\(.author.login)](https://github.com/\(.author.login))"' >> "$NOTES"
-          fi
-
           echo "notes_file=$NOTES" >> "$GITHUB_OUTPUT"
           echo "------ changelog -------"
           cat "$NOTES"
