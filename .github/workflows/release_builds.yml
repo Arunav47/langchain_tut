@@ -71,7 +71,7 @@ jobs:
         id: changelog
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}\
+          GH_REPO: ${{ github.repository }}
           LAST_TAG: ${{ steps.version.outputs.last_tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -131,7 +131,7 @@ jobs:
       - name: Create Github release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}\
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.version }}
           NOTES_FILE: ${{ steps.changelog.outputs.notes_file }}
           ZIP_PATH: ${{ steps.zip.outputs.zip_path }}
