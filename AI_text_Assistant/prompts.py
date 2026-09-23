@@ -1,3 +1,4 @@
+#these are different prompts available for the AI
 command_promts = {
     "/explain" : "Explain the following text in simple terms: {text}",
     "/summarize" : "Summarize the following text in short and simple terms: {text}",

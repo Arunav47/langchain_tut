@@ -1,0 +1,35 @@
+name: Pull request gates
+
+on:
+    pull_request_target:
+        branches: [main]
+        types: [opened, synchronize, reopened, edited]
+
+concurrency:
+    group: pr-gates-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    actions: read
+    pull-requests: write
+
+jobs:
+    manual-check-ins:
+        name: Manual check-in gate
+        uses: ./.github/workflows/flag-manual-edits.yml
+        with:
+            pr_number: ${{ github.event.pull_request.number }}
+            head_sha: ${{ github.event.pull_request.head.sha }}
+        secrets: inherit
+
+    checking-similarity-audit:
+        name: Checking Similarity audit
+        needs: manual-check-ins
+        if: always()
+        uses: ./.github/workflows/checking-similarity-audit.yml
+        with:
+            pr_number: ${{ github.event.pull_request.number }}
+            head_sha: ${{ github.event.pull_request.head.sha }}
+            source_run_id: ${{ github.run_id }}
+        secrets: inherit
