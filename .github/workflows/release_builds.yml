@@ -103,7 +103,7 @@ jobs:
           if [ "$COUNT" -eq 0 ]; then
             echo "_No merged pull requests found in this range._" >> "$NOTES"
           else
-            printf '%s' "$PRS" | jq -r '.[] | "- \(.title) (#\(.number)) by [@\(.author.login)]"' >> "$NOTES"
+            printf '%s' "$PRS" | jq -r '.[] | "- \(.title) (#\(.number)) by [@\(.author.login)](https://github.com/\(.author.login))"' >> "$NOTES"
           fi
 
           echo "notes_file=$NOTES" >> "$GITHUB_OUTPUT"
