@@ -141,7 +141,7 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          TITLE="uAIDLC Plugins $VERSION ($(date -u +%Y-%m-%d))"
+          TITLE="langchain tutorial $VERSION ($(date -u +%Y-%m-%d))"
           gh release create "$VERSION" "$ZIP_PATH" \
             --title "$TITLE" \
             --notes-file "$NOTES_FILE" \
